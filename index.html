@@ -1,1 +1,1378 @@
-/
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob:; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://upload.wikimedia.org; connect-src 'self' wss://broker.emqx.io:8084;">
+    <title>Clipboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='20' y='24' width='60' height='64' fill='none' stroke='%231d1d1f' stroke-width='6'/><rect x='40' y='14' width='20' height='14' fill='%231d1d1f'/><path d='M32 46h36M32 60h36M32 74h22' stroke='%231d1d1f' stroke-width='5' stroke-linecap='round'/></svg>" type="image/svg+xml">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Chakra+Petch:wght@600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,100..700,0,0" />
+    <style>
+        .font-arial { font-family: 'Arial', sans-serif; }
+        .wordmark { font-family: 'Chakra Petch', 'Share Tech Mono', monospace; font-weight: 700; letter-spacing: 0.22em; }
+        .ms { font-family: 'Material Symbols Outlined'; font-weight: normal; font-style: normal; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+        html, body { margin: 0; padding: 0; }
+        body { background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', 'Helvetica Neue', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 20px 90px; box-sizing: border-box; overflow-x: hidden; user-select: none; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
+        .main-layout { display: flex; flex-direction: row; align-items: center; justify-content: center; width: 100%; max-width: 1000px; }
+        .clip-device { width: min(72vw, 640px); height: min(76vh, 580px); background: #ffffff; border: 1px solid #d2d2d7; border-radius: 0; box-shadow: none; position: relative; display: flex; flex-direction: column; padding: 0; box-sizing: border-box; overflow: hidden; z-index: 20; flex-shrink: 0; transition: border-color 0.3s ease; }
+        .clip-device.connected { border-color: #0071e3; }
+        .device-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; flex-shrink: 0; min-height: 30px; flex-wrap: wrap; border-bottom: 1px solid #e5e5e7; transition: border-color 0.3s ease; }
+        .clip-device.connected .device-header { border-bottom-color: #0071e3; }
+        .header-title { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .title-main { font-size: 19px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.02em; display: inline-flex; align-items: center; transition: color 0.3s ease; }
+        .clip-device.connected .title-main { color: #0071e3; }
+        .conn-dot { display: inline-block; width: 7px; height: 7px; background: #34c759; margin-left: 9px; vertical-align: middle; opacity: 0; transform: scale(0.4); transition: opacity 0.25s ease, transform 0.25s ease; }
+        .clip-device.connected .conn-dot { opacity: 1; transform: scale(1); }
+        .header-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+        .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: #6e6e73; background: #f5f5f7; border: 1px solid #e5e5e7; padding: 5px 10px; border-radius: 0; white-space: nowrap; line-height: 1; letter-spacing: -0.01em; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .pill b { color: #1d1d1f; font-weight: 600; font-family: 'SF Mono', ui-monospace, 'Share Tech Mono', monospace; font-size: 11px; letter-spacing: 0.02em; }
+        .pill .ms { font-size: 13px; color: #86868b; }
+        .pill.state.online { color: #1d1d1f; border-color: #d2d2d7; }
+        .pill.state.online .ms { color: #0071e3; }
+        .pill.state.secure { background: #ffffff; border-color: #34c759; color: #248a3d; }
+        .pill.state.secure .ms { color: #34c759; }
+        .pill.secure { background: #0071e3; border-color: #0071e3; color: #ffffff; cursor: pointer; display: none; padding: 5px 11px; font-weight: 600; }
+        .pill.secure:hover { background: #ff3b30; border-color: #ff3b30; }
+        .pill.open-mode { background: #fff7e0; border-color: #ffcc02; color: #7c5e00; font-weight: 600; display: none; }
+        .pill.open-mode .ms { color: #b38600; font-size: 13px; }
+        .pill.request-pill { background: #ff3b30; border-color: #ff3b30; color: #fff; font-weight: 600; cursor: pointer; display: none; }
+        .pill.request-pill:hover { background: #e02d23; }
+        .pill.request-pill .ms { color: #fff; font-size: 13px; }
+        .request-banner { display: none; align-items: center; gap: 10px; padding: 9px 14px; background: #fff7e0; border-bottom: 1px solid #ffcc02; font-size: 12px; font-weight: 500; color: #7c5e00; flex-shrink: 0; }
+        .request-banner.visible { display: flex; }
+        .request-banner .ms { font-size: 17px; color: #b38600; flex-shrink: 0; }
+        .request-banner-text { flex: 1; letter-spacing: -0.005em; }
+        .request-banner-btn { background: transparent; border: 1px solid #7c5e00; color: #7c5e00; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; letter-spacing: 0.02em; font-family: inherit; transition: background 0.15s; white-space: nowrap; }
+        .request-banner-btn:hover { background: rgba(124,94,0,0.1); }
+        .request-banner-btn.primary { background: #7c5e00; color: #ffffff; }
+        .request-banner-btn.primary:hover { background: #5e4700; }
+        .screen-bezel { flex: 1 1 auto; min-height: 0; background: #ffffff; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        .canvas { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; background: #ffffff; padding: 16px; position: relative; transition: background-color 0.15s; }
+        .canvas.drop-active { background: #f2fbf5; }
+        .canvas-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #c7c7cc; pointer-events: none; padding: 24px; }
+        .canvas-empty .empty-icon { font-size: 38px; color: #d2d2d7; margin-bottom: 10px; font-variation-settings: 'wght' 300; transition: color 0.3s ease; }
+        .empty-title { font-size: 15px; font-weight: 600; color: #86868b; margin: 0 0 4px; letter-spacing: -0.01em; transition: color 0.3s ease; }
+        .empty-sub { font-size: 12.5px; color: #a1a1a6; margin: 0; letter-spacing: -0.005em; transition: color 0.3s ease; }
+        .clip-device.connected .canvas-empty .empty-icon { color: #0071e3; }
+        .clip-device.connected .empty-title { color: #0071e3; }
+        .c-item { background: #ffffff; border: 1px solid #e5e5e7; border-radius: 0; padding: 11px 14px 13px; margin-bottom: 10px; transition: border-color 0.15s; }
+        .c-item:hover { border-color: #c7c7cc; }
+        .c-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #86868b; margin-bottom: 5px; letter-spacing: -0.005em; }
+        .meta-right { display: flex; align-items: center; gap: 8px; }
+        .tag { font-weight: 600; font-size: 10.5px; letter-spacing: 0.03em; text-transform: uppercase; }
+        .tag.rx { color: #34c759; }
+        .tag.tx { color: #ff3b30; }
+        .c-text { font-size: 14.5px; line-height: 1.45; color: #1d1d1f; letter-spacing: -0.005em; word-break: break-word; white-space: pre-wrap; user-select: text; }
+        .c-copy { background: transparent; border: none; padding: 0; margin: 0; cursor: pointer; color: #a1a1a6; display: flex; align-items: center; transition: color 0.15s; }
+        .c-copy:hover { color: #1d1d1f; }
+        .c-copy .ms { font-size: 15px; }
+        .file-card { display: flex; align-items: center; gap: 10px; background: #ffffff; border: 1px solid #e5e5e7; border-radius: 0; padding: 8px 10px; margin-top: 4px; }
+        .file-ico { font-size: 22px; color: #0071e3; flex-shrink: 0; font-variation-settings: 'wght' 400; }
+        .file-info { flex: 1; min-width: 0; }
+        .file-name { font-size: 12.5px; color: #1d1d1f; font-weight: 500; word-break: break-all; line-height: 1.3; letter-spacing: -0.005em; }
+        .file-size { font-size: 11px; color: #86868b; margin-top: 1px; letter-spacing: -0.005em; }
+        .file-dl { font-size: 12px; font-weight: 500; background: #0071e3; color: #fff; padding: 5px 12px; border-radius: 0; text-decoration: none; flex-shrink: 0; transition: background 0.15s; cursor: pointer; letter-spacing: -0.005em; }
+        .file-dl:hover { background: #0077ed; }
+        .bar { height: 3px; background: #e5e5e7; margin-top: 8px; border-radius: 0; overflow: hidden; }
+        .bar-fill { height: 100%; width: 0; background: #34c759; transition: width 0.15s linear; }
+        .bar-fill.tx { background: #ff3b30; }
+        .thumb-wrap img { max-width: 100%; max-height: 140px; margin-top: 8px; border-radius: 0; display: block; }
+        .composer-bar { flex-shrink: 0; padding: 10px 12px; background: #ffffff; border-top: 1px solid #e5e5e7; }
+        .composer-inner { display: flex; align-items: flex-end; gap: 8px; background: #ffffff; border: 1px solid #d2d2d7; border-radius: 0; padding: 6px 6px 6px 14px; transition: border-color 0.25s ease; }
+        .composer-inner:focus-within { border-color: #0071e3; }
+        .clip-device.connected .composer-inner { border-color: #34c759; }
+        .clip-device.connected .composer-inner:focus-within { border-color: #0071e3; }
+        .composer { flex: 1; min-height: 24px; max-height: 90px; overflow-y: auto; font-size: 15px; font-family: inherit; line-height: 1.4; color: #1d1d1f; outline: none; letter-spacing: -0.005em; white-space: pre-wrap; word-break: break-word; user-select: text; padding: 4px 0; }
+        .composer:empty::before { content: attr(placeholder); color: #a1a1a6; pointer-events: none; }
+        .send-btn { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 0; background: #0071e3; color: #ffffff; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s; }
+        .send-btn:hover { background: #0077ed; }
+        .send-btn:active { background: #0062c4; }
+        .clip-device.connected .send-btn { background: #34c759; }
+        .clip-device.connected .send-btn:hover { background: #2fb350; }
+        .send-btn .ms { font-size: 17px; font-variation-settings: 'wght' 500; }
+        .controls-row { display: flex; gap: 0; align-items: stretch; justify-content: center; flex-shrink: 0; border-top: 1px solid #e5e5e7; transition: border-color 0.3s ease; }
+        .clip-device.connected .controls-row { border-top-color: #0071e3; }
+        .ctrl-btn { flex: 1; height: 48px; background: #ffffff; border: none; border-right: 1px solid #e5e5e7; border-radius: 0; color: #1d1d1f; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.15s, color 0.2s; padding: 0 14px; letter-spacing: -0.01em; white-space: nowrap; min-width: 0; }
+        .ctrl-btn:last-child { border-right: none; }
+        .ctrl-btn:hover { background: #f5f5f7; }
+        .ctrl-btn:active { background: #ebebf0; }
+        .ctrl-btn.primary { background: #1d1d1f; color: #ffffff; }
+        .ctrl-btn.primary:hover { background: #000; }
+        .ctrl-btn.primary.leave-mode { background: #ff3b30; color: #ffffff; }
+        .ctrl-btn.primary.leave-mode:hover { background: #e02d23; }
+        .ctrl-btn.icon { flex: 0 0 48px; padding: 0; }
+        .ctrl-btn.icon .ms { font-size: 19px; }
+        .ctrl-btn .ms { font-size: 17px; }
+        .clip-device.connected #btn-file { color: #0071e3; }
+        .clip-device.connected #btn-file .ms { color: #0071e3; }
+        .ctrl-btn.icon.attention { animation: attentionPulse 1.2s ease-in-out infinite; }
+        @keyframes attentionPulse {
+            0%, 100% { background: #ffffff; }
+            50% { background: #ffe5e5; }
+        }
+        .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.1); opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 55; }
+        .drawer-backdrop.visible { opacity: 1; pointer-events: auto; }
+        .side-panel { position: fixed; top: 0; right: 0; height: 100%; width: 400px; max-width: 92vw; background: #ffffff; border-left: 1px solid #d2d2d7; transform: translateX(102%); transition: transform 0.32s cubic-bezier(0.25, 0.9, 0.35, 1); z-index: 60; display: flex; flex-direction: column; box-sizing: border-box; }
+        .side-panel.visible { transform: translateX(0); }
+        .side-tabs { display: flex; align-items: stretch; gap: 0; border-bottom: 1px solid #e5e5e7; flex-shrink: 0; padding-right: 6px; }
+        .side-tab { flex: 1; background: transparent; border: none; padding: 15px 12px 13px; font-family: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: #86868b; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; justify-content: center; gap: 7px; transition: color 0.15s, border-color 0.15s; min-width: 0; }
+        .side-tab:hover { color: #1d1d1f; }
+        .side-tab.active { color: #1d1d1f; border-bottom-color: #1d1d1f; }
+        .side-tab .tab-icon { font-size: 16px; }
+        .side-tab-badge { background: #ff3b30; color: #fff; font-size: 10px; padding: 1px 6px; font-weight: 700; min-width: 17px; text-align: center; display: none; letter-spacing: 0; }
+        .side-tab-badge.show { display: inline-block; }
+        .side-close { background: transparent; border: none; cursor: pointer; color: #9ca3af; padding: 0 8px; display: flex; align-items: center; transition: color 0.15s; flex-shrink: 0; }
+        .side-close:hover { color: #1d1d1f; }
+        .side-close .ms { font-size: 18px; }
+        .side-view { display: none; flex-direction: column; flex: 1; min-height: 0; padding: 16px 20px 20px; }
+        .side-view.active { display: flex; }
+        .history-list { flex: 1; overflow-y: auto; padding-right: 6px; }
+        .history-item { padding: 11px 4px; display: flex; flex-direction: column; border-bottom: 1px solid #f0f0f2; }
+        .history-item:hover { background: #fafafa; }
+        .history-meta { font-size: 11px; color: #86868b; display: flex; justify-content: space-between; gap: 10px; margin-bottom: 3px; font-weight: 500; letter-spacing: -0.005em; }
+        .history-text { font-size: 13.5px; color: #1d1d1f; word-break: break-word; line-height: 1.4; letter-spacing: -0.005em; }
+        .type-tx { color: #ff3b30; }
+        .type-rx { color: #34c759; }
+        .req-list { flex: 1; overflow-y: auto; padding-right: 4px; }
+        .req-list::-webkit-scrollbar { width: 5px; }
+        .req-list::-webkit-scrollbar-thumb { background: #d2d2d7; }
+        .req-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid #e5e5e7; margin-bottom: 8px; background: #ffffff; }
+        .req-item:hover { border-color: #c7c7cc; }
+        .req-avatar { width: 34px; height: 34px; background: #0071e3; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; flex-shrink: 0; font-family: 'SF Mono', ui-monospace, monospace; }
+        .req-info { flex: 1; min-width: 0; }
+        .req-name { font-size: 13.5px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.005em; }
+        .req-safety { font-family: 'SF Mono', ui-monospace, 'Share Tech Mono', monospace; font-size: 11px; color: #86868b; margin-top: 2px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .req-actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .req-btn { border: 1px solid #d2d2d7; background: #ffffff; color: #1d1d1f; padding: 6px 11px; font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: inherit; letter-spacing: -0.005em; transition: all 0.15s; white-space: nowrap; }
+        .req-btn:hover { background: #f5f5f7; }
+        .req-btn.accept { background: #0071e3; border-color: #0071e3; color: #ffffff; }
+        .req-btn.accept:hover { background: #0077ed; }
+        .req-btn.decline { color: #ff3b30; }
+        .req-btn.decline:hover { background: #fff5f5; }
+        .req-empty { padding: 40px 12px; text-align: center; font-size: 13px; color: #a1a1a6; letter-spacing: -0.005em; line-height: 1.5; }
+        .req-empty .ms { display: block; font-size: 32px; color: #d2d2d7; margin-bottom: 8px; }
+        .req-footer { display: flex; gap: 8px; align-items: center; padding-top: 14px; border-top: 1px solid #e5e5e7; flex-shrink: 0; margin-top: 12px; }
+        .open-toggle { flex: 1; display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 10px; border: 1px solid #e5e5e7; transition: background 0.15s, border-color 0.15s; user-select: none; }
+        .open-toggle:hover { background: #fafafa; }
+        .open-toggle.on { border-color: #34c759; background: #f2fbf5; }
+        .open-toggle-track { position: relative; width: 30px; height: 18px; background: #d2d2d7; flex-shrink: 0; transition: background 0.2s; }
+        .open-toggle.on .open-toggle-track { background: #34c759; }
+        .open-toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #ffffff; transition: transform 0.2s; }
+        .open-toggle.on .open-toggle-track::after { transform: translateX(12px); }
+        .open-toggle-label { font-size: 12px; font-weight: 600; color: #1d1d1f; letter-spacing: -0.005em; line-height: 1.2; }
+        .open-toggle-sub { font-size: 10.5px; color: #86868b; margin-top: 1px; font-weight: 400; }
+        .req-btn-wide { background: #1d1d1f; color: #ffffff; border: none; padding: 10px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; letter-spacing: -0.005em; transition: background 0.15s; white-space: nowrap; }
+        .req-btn-wide:hover { background: #000; }
+        .req-btn-wide:disabled { background: #d2d2d7; cursor: not-allowed; }
+        .canvas::-webkit-scrollbar, .history-list::-webkit-scrollbar, .composer::-webkit-scrollbar { width: 6px; }
+        .canvas::-webkit-scrollbar-track, .history-list::-webkit-scrollbar-track, .composer::-webkit-scrollbar-track { background: transparent; }
+        .canvas::-webkit-scrollbar-thumb, .history-list::-webkit-scrollbar-thumb, .composer::-webkit-scrollbar-thumb { background: #d2d2d7; }
+        .modal-overlay { position: fixed; inset: 0; background-color: rgba(0,0,0,0.2); z-index: 80; display: none; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.22s ease; }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        .modal-card { background: #ffffff; padding: 26px; width: 90%; max-width: 340px; border: 1px solid #d2d2d7; }
+        .vibrate { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+        .toast { position: fixed; top: 24px; left: 50%; background: #1d1d1f; color: #ffffff; padding: 11px 22px; font-family: inherit; font-size: 13px; font-weight: 500; letter-spacing: -0.005em; z-index: 200; transform: translate(-50%, -70px); opacity: 0; transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s; pointer-events: none; white-space: nowrap; }
+        .toast.visible { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+        .toast.error { background: #ff3b30; }
+        .info-btn { background-color: transparent; color: #9ca3af; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; padding: 0; line-height: 1; pointer-events: auto; }
+        .info-btn:hover { color: #111827; }
+        .fingerprint-box { background: #ffffff; border: 1px solid #d2d2d7; padding: 12px; text-align: center; font-family: 'SF Mono', ui-monospace, 'Share Tech Mono', monospace; font-size: 17px; letter-spacing: 0.12em; color: #1d1d1f; user-select: all; font-weight: 500; }
+        .peer-row { font-family: 'SF Mono', ui-monospace, 'Share Tech Mono', monospace; font-size: 11.5px; color: #1d1d1f; display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 1px solid #e5e5e7; background: #ffffff; margin-bottom: 6px; letter-spacing: 0.02em; }
+        @media (max-width: 760px) {
+            body { padding: 16px 12px 90px; }
+            .clip-device { width: 94vw; height: min(78vh, 640px); padding: 0; }
+            .title-main { font-size: 17px; }
+            .pill { font-size: 10px; padding: 4px 8px; }
+            .pill b { font-size: 10px; }
+            .c-text { font-size: 14px; }
+            .composer { font-size: 15px; }
+            .ctrl-btn { height: 46px; font-size: 12px; padding: 0 10px; }
+            .ctrl-btn.icon { flex: 0 0 46px; }
+            .request-banner { padding: 8px 12px; font-size: 11.5px; gap: 8px; }
+            .side-panel { width: 92vw; }
+            .side-view { padding: 14px 16px 16px; }
+        }
+        @media (max-width: 480px) {
+            .header-chips .pill.optional { display: none; }
+            .request-banner-text { font-size: 11px; }
+            .request-banner-btn { padding: 3px 7px; font-size: 10px; }
+            .side-tab { font-size: 11px; padding: 13px 8px 11px; letter-spacing: 0.06em; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-layout">
+        <div id="device" class="clip-device">
+            <div class="device-header">
+                <div class="header-title">
+                    <span class="title-main">
+                        Clipboard
+                        <span class="conn-dot" title="Secure link active"></span>
+                    </span>
+                </div>
+                <div class="header-chips">
+                    <span id="request-pill" class="pill request-pill" onclick="openSide('requests')"><span class="ms">person_add</span><span id="request-pill-text">0</span></span>
+                    <span id="open-mode-pill" class="pill open-mode"><span class="ms">lock_open</span>OPEN</span>
+                    <span id="secure-badge" class="pill secure" onclick="leaveRoom()" title="Click to leave room"></span>
+                    <span id="chip-state" class="pill state">
+                        <span id="status-icon" class="ms">wifi_off</span>
+                        <span id="chip-state-text">OFFLINE</span>
+                    </span>
+                    <span class="pill optional">ID <b id="chip-my-id">0000</b></span>
+                    <span class="pill">ROOM <b id="chip-room">—</b></span>
+                </div>
+            </div>
+
+            <div id="request-banner" class="request-banner">
+                <span class="ms">person_add</span>
+                <span id="request-banner-text" class="request-banner-text">Waiting…</span>
+                <button class="request-banner-btn" onclick="toggleOpenForAll()">OPEN</button>
+                <button class="request-banner-btn primary" onclick="openSide('requests')">REVIEW</button>
+            </div>
+
+            <div class="screen-bezel">
+                <div id="canvas" class="canvas">
+                    <div id="canvas-empty" class="canvas-empty">
+                        <span id="empty-icon" class="ms empty-icon">content_paste</span>
+                        <p id="empty-title" class="empty-title">Nothing here yet</p>
+                        <p id="empty-sub" class="empty-sub">Paste, drop, or type to begin</p>
+                    </div>
+                    <div id="canvas-inner" class="canvas-inner"></div>
+                </div>
+                <div class="composer-bar">
+                    <div class="composer-inner">
+                        <div id="composer" class="composer" contenteditable="true" spellcheck="false" placeholder="Message…"></div>
+                        <button class="send-btn" onclick="sendComposer()" title="Send (Enter)">
+                            <span class="ms">arrow_upward</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls-row">
+                <button id="btn-side" class="ctrl-btn icon" onclick="toggleSide()" title="Log / Requests">
+                    <span class="ms">menu</span>
+                </button>
+                <button id="btn-pair" class="ctrl-btn primary" onclick="openPairModal()">JOIN</button>
+                <button id="btn-file" class="ctrl-btn" onclick="triggerFile()">
+                    <span class="ms">attach_file</span>FILE
+                </button>
+                <button class="ctrl-btn icon" onclick="clearCanvas()" title="Clear canvas">
+                    <span class="ms">delete_sweep</span>
+                </button>
+                <button id="btn-sound" class="ctrl-btn icon" onclick="toggleSound()" title="Toggle sound">
+                    <span class="ms" id="sound-icon">volume_up</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed bottom-4 w-full text-center pointer-events-none">
+        <h1 class="text-xl text-gray-800 opacity-90 wordmark">CLIPBOARD</h1>
+    </div>
+    <div class="fixed bottom-1 w-full text-center pointer-events-none select-none">
+        <span class="text-[10px] text-gray-400 font-arial tracking-wide">asoefuo</span>
+    </div>
+    <div class="fixed bottom-4 left-4 z-50 flex items-center gap-1 select-none pointer-events-none">
+        <button onclick="openInfoModal()" class="info-btn" title="About">
+            <span class="ms" style="font-size: 16px; font-weight: 100;">info</span>
+        </button>
+        <span class="text-[10px] font-arial tracking-wide" style="color: #00f3ff;">セブン</span>
+    </div>
+
+    <div id="side-backdrop" class="drawer-backdrop" onclick="closeSide()"></div>
+    <aside id="side-panel" class="side-panel">
+        <div class="side-tabs">
+            <button id="tab-btn-log" class="side-tab active" onclick="setSideTab('log')">
+                <span class="ms tab-icon">history</span>Log
+            </button>
+            <button id="tab-btn-requests" class="side-tab" onclick="setSideTab('requests')">
+                <span class="ms tab-icon">person_add</span>Requests
+                <span id="tab-badge" class="side-tab-badge">0</span>
+            </button>
+            <button class="side-close" onclick="closeSide()" title="Close">
+                <span class="ms">close</span>
+            </button>
+        </div>
+
+        <div id="view-log" class="side-view active">
+            <div id="history-list" class="history-list">
+                <div class="text-center text-gray-400 italic mt-4 text-sm">No records yet</div>
+            </div>
+        </div>
+
+        <div id="view-requests" class="side-view">
+            <div id="requests-list" class="req-list"></div>
+            <div class="req-footer">
+                <div id="open-toggle" class="open-toggle" onclick="toggleOpenForAll()">
+                    <div class="open-toggle-track"></div>
+                    <div>
+                        <div class="open-toggle-label">Open for all</div>
+                        <div class="open-toggle-sub">Auto-accept future requests</div>
+                    </div>
+                </div>
+                <button id="accept-all-btn" class="req-btn-wide" onclick="acceptAllRequests()">Accept all</button>
+            </div>
+        </div>
+    </aside>
+
+    <div id="freq-modal" class="modal-overlay">
+        <div class="modal-card">
+            <h3 class="text-lg font-bold mb-1 text-gray-900 tracking-tight">Join a room</h3>
+            <p class="text-sm text-gray-500 mb-5">Enter a shared room code to stream with a friend.</p>
+            <input type="text" id="freq-input" placeholder="0000" maxlength="6" inputmode="numeric"
+                   class="w-full bg-white p-4 text-center text-2xl font-medium border border-gray-300 mb-5 outline-none focus:border-blue-500 transition tracking-[0.5em] text-gray-900 rounded-none">
+            <div class="flex gap-2">
+                <button onclick="confirmPairing()" class="flex-grow bg-gray-900 text-white py-3 rounded-none font-medium text-sm hover:bg-black transition">Connect</button>
+                <button onclick="closeModal('freq-modal')" class="bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-none font-medium text-sm hover:bg-gray-50 transition">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="info-modal" class="modal-overlay" style="z-index:120;">
+        <div class="bg-white w-full h-full flex flex-col items-center justify-center p-8 relative overflow-y-auto">
+            <button onclick="closeModal('info-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-black p-2">
+                <span class="ms" style="font-size: 24px;">close</span>
+            </button>
+            <div class="text-center mb-8">
+                <h1 class="text-4xl sm:text-5xl text-gray-900 mb-2 wordmark">CLIPBOARD</h1>
+                <span class="text-sm text-gray-400 font-arial tracking-wide">asoefuo</span>
+            </div>
+            <div class="max-w-lg w-full text-center space-y-6 text-gray-600 font-sans">
+                <p class="text-base leading-relaxed max-w-md mx-auto text-gray-800">
+                    Clipboard is a private, peer-to-peer white canvas that streams text and files between devices —
+                    secured by modern military-grade cryptography. Nothing is ever stored on a server.
+                </p>
+                <div class="flex flex-col items-center gap-2 font-mono text-sm py-4">
+                    <div class="flex flex-wrap justify-center gap-4">
+                        <span>MY ID: <span id="info-my-pin" class="font-bold text-black">....</span></span>
+                        <span class="text-gray-300">|</span>
+                        <span>ROOM: <span id="info-target-pin" class="font-bold text-black">NONE</span></span>
+                        <span class="text-gray-300">|</span>
+                        <span>PEERS: <span id="info-peer-count" class="font-bold text-black">0</span></span>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1">
+                        STATUS: <span id="info-status">UNSECURED</span>
+                    </div>
+                </div>
+                <div id="safety-number-section" style="display:none;" class="w-full">
+                    <p class="text-[10px] uppercase font-bold text-gray-400 tracking-widest mb-2">Safety Numbers</p>
+                    <div id="info-peers" class="text-left"></div>
+                    <p class="text-[10px] text-gray-400 mt-3">Verify these numbers on the other device.</p>
+                </div>
+                <div class="flex flex-wrap justify-center gap-6 text-xs font-bold uppercase tracking-widest text-gray-400">
+                    <span>AES-256-GCM</span><span>ECDH P-256</span><span>HKDF-SHA256</span><span>Volatile Memory</span>
+                </div>
+                <div class="pt-6 w-full text-center">
+                    <button onclick="leaveRoom(); closeModal('info-modal');" class="text-xs text-red-500 hover:text-red-700 font-bold tracking-wider border-b border-red-200 pb-1 hover:border-red-500 transition-colors">LEAVE ROOM &amp; WIPE KEYS</button>
+                    <p class="text-[10px] text-gray-400 mt-4">Everything is encrypted in your browser.<br>Files stream directly between peers.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <input type="file" id="file-input" multiple hidden>
+
+<script>
+    const CHAR_LIMIT = 2000;
+    const LOG_LIMIT = 40;
+    const CHUNK_SIZE = 8 * 1024;
+    const MAX_FILE = 2 * 1024 * 1024;
+    const MQTT_BROKER = "broker.emqx.io";
+    const MQTT_PORT = 8084;
+    const TOPIC_PREFIX = "clip_v1/room/";
+    const HEARTBEAT_MS = 4000;
+    const PEER_TIMEOUT_MS = 20000;
+    const REJECT_CACHE_MS = 60000;
+    const SUBSCRIBE_TIMEOUT_MS = 1200;
+
+    const device = document.getElementById('device');
+    const canvasEl = document.getElementById('canvas');
+    const canvasInner = document.getElementById('canvas-inner');
+    const canvasEmpty = document.getElementById('canvas-empty');
+    const composer = document.getElementById('composer');
+    const statusIcon = document.getElementById('status-icon');
+    const chipState = document.getElementById('chip-state');
+    const chipStateText = document.getElementById('chip-state-text');
+    const secureBadge = document.getElementById('secure-badge');
+    const openModePill = document.getElementById('open-mode-pill');
+    const requestPill = document.getElementById('request-pill');
+    const requestPillText = document.getElementById('request-pill-text');
+    const btnSide = document.getElementById('btn-side');
+    const sidePanel = document.getElementById('side-panel');
+    const sideBackdrop = document.getElementById('side-backdrop');
+    const tabBtnLog = document.getElementById('tab-btn-log');
+    const tabBtnRequests = document.getElementById('tab-btn-requests');
+    const tabBadge = document.getElementById('tab-badge');
+    const viewLog = document.getElementById('view-log');
+    const viewRequests = document.getElementById('view-requests');
+    const historyList = document.getElementById('history-list');
+    const btnPair = document.getElementById('btn-pair');
+    const freqInput = document.getElementById('freq-input');
+    const fileInput = document.getElementById('file-input');
+    const emptyIcon = document.getElementById('empty-icon');
+    const emptyTitle = document.getElementById('empty-title');
+    const emptySub = document.getElementById('empty-sub');
+    const requestBanner = document.getElementById('request-banner');
+    const requestBannerText = document.getElementById('request-banner-text');
+    const requestsList = document.getElementById('requests-list');
+    const openToggle = document.getElementById('open-toggle');
+    const acceptAllBtn = document.getElementById('accept-all-btn');
+
+    let mqttClient = null;
+    let isConnected = false;
+    let isMuted = false;
+    let audioCtx = null;
+    let myId = null;
+    let roomCode = null;
+    let myKeyPair = null;
+    const peers = new Map();
+    const pendingRequests = new Map();
+    const rejectedPeers = new Map();
+    const incoming = new Map();
+    let messageLog = [];
+    let connectionUIState = false;
+    let openForAll = false;
+    let heartbeatTimer = null;
+    let cleanupTimer = null;
+    let lastPendingCount = 0;
+    let currentSideTab = 'log';
+    let msgRxCount = 0;      // diagnostics
+    let helloTxCount = 0;
+    let helloTxRx = 0;
+
+    window.addEventListener('load', () => {
+        myId = Math.floor(1000 + Math.random() * 9000).toString();
+        document.getElementById('info-my-pin').textContent = myId;
+        setText('chip-my-id', myId);
+        console.log("[BOOT] My ID:", myId);
+
+        document.body.addEventListener('click', initAudio, { once: true });
+        initMqttConnection();
+        updatePeerUI();
+        cleanupTimer = setInterval(pruneStalePeers, 5000);
+
+        composer.addEventListener('input', updateCounter);
+        composer.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComposer(); }
+        });
+        ['dragenter', 'dragover'].forEach(ev => canvasEl.addEventListener(ev, (e) => { e.preventDefault(); canvasEl.classList.add('drop-active'); }));
+        ['dragleave', 'drop'].forEach(ev => canvasEl.addEventListener(ev, (e) => {
+            e.preventDefault();
+            if (ev === 'dragleave' && canvasEl.contains(e.relatedTarget)) return;
+            canvasEl.classList.remove('drop-active');
+        }));
+        canvasEl.addEventListener('drop', (e) => {
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+        });
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            const files = [];
+            for (const it of items) if (it.kind === 'file') { const f = it.getAsFile(); if (f) files.push(f); }
+            if (files.length) { e.preventDefault(); handleFiles(files); }
+        });
+        fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ""; });
+    });
+
+    window.addEventListener('beforeunload', () => {
+        if (isConnected && roomCode) {
+            const payload = JSON.stringify({ type: 'BYE', sender: myId, ts: Date.now() });
+            const message = new Paho.MQTT.Message(payload);
+            message.destinationName = TOPIC_PREFIX + roomCode + "/all";
+            message.qos = 0;
+            try { mqttClient.send(message); } catch (e) { }
+        }
+    });
+
+    function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+    function escapeHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+    function sanitizeHTML(html) {
+        return String(html).replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "").replace(/<iframe\b[^>]*>([\s\S]*?)<\/iframe>/gim, "").replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, "").replace(/\son\w+="[^"]*"/g, "").replace(/\son\w+='[^']*'/g, "").replace(/javascript:/gi, "");
+    }
+    function timeNow() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+        return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+    function iconFor(mime, name) {
+        const m = (mime || "").toLowerCase();
+        const n = (name || "").toLowerCase();
+        if (m.startsWith("image/")) return "image";
+        if (m.startsWith("audio/")) return "audio_file";
+        if (m.startsWith("video/")) return "movie";
+        if (m.includes("zip") || m.includes("compressed") || n.endsWith(".zip") || n.endsWith(".rar")) return "folder_zip";
+        return "description";
+    }
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    async function generateKeyPair() { return await window.crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]); }
+    async function exportPublicKey(key) { return await window.crypto.subtle.exportKey("jwk", key); }
+    async function importPublicKey(jwk) { return await window.crypto.subtle.importKey("jwk", jwk, { name: "ECDH", namedCurve: "P-256" }, true, []); }
+    async function deriveSessionKey(privateKey, publicKey) {
+        const sharedBits = await window.crypto.subtle.deriveBits({ name: "ECDH", public: publicKey }, privateKey, 256);
+        const sharedKey = await window.crypto.subtle.importKey("raw", sharedBits, { name: "HKDF" }, false, ["deriveKey"]);
+        return await window.crypto.subtle.deriveKey(
+            { name: "HKDF", hash: "SHA-256", salt: new TextEncoder().encode("ClipboardSecureSalt"), info: new TextEncoder().encode("ClipboardAESGCM") },
+            sharedKey, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+        );
+    }
+    async function encryptMessage(text, key) {
+        const encoded = new TextEncoder().encode(text);
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const ciphertext = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encoded);
+        const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+        combined.set(iv); combined.set(new Uint8Array(ciphertext), iv.length);
+        return arrayBufferToBase64(combined);
+    }
+    async function decryptMessage(base64Data, key) {
+        const combined = base64ToBytes(base64Data);
+        const iv = combined.slice(0, 12);
+        const ciphertext = combined.slice(12);
+        const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, ciphertext);
+        return new TextDecoder().decode(decrypted);
+    }
+    async function generateSafetyNumber(myPubKey, theirPubKey, myPeerId, theirPeerId) {
+        try {
+            const mySpki = await window.crypto.subtle.exportKey("spki", myPubKey);
+            const theirSpki = await window.crypto.subtle.exportKey("spki", theirPubKey);
+            const myBytes = new Uint8Array(mySpki); const theirBytes = new Uint8Array(theirSpki);
+            let a, b;
+            if (myPeerId < theirPeerId) { a = myBytes; b = theirBytes; } else { a = theirBytes; b = myBytes; }
+            const combined = new Uint8Array(a.length + b.length);
+            combined.set(a); combined.set(b, a.length);
+            const hashBuffer = await window.crypto.subtle.digest("SHA-256", combined);
+            const hashArray = new Uint8Array(hashBuffer);
+            let code = "";
+            for (let i = 0; i < 3; i++) {
+                const val = (hashArray[i * 2] << 8) | hashArray[i * 2 + 1];
+                code += val.toString().padStart(5, '0').slice(-4) + " ";
+            }
+            return code.trim();
+        } catch (e) { return "ERROR"; }
+    }
+    function arrayBufferToBase64(buffer) {
+        let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; const step = 0x8000;
+        for (let i = 0; i < len; i += step) binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + step, len)));
+        return window.btoa(binary);
+    }
+    function base64ToBytes(base64) {
+        const binary_string = window.atob(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = binary_string.charCodeAt(i);
+        return bytes;
+    }
+
+    function initAudio() {
+        if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+    }
+    function toggleSound() {
+        initAudio(); isMuted = !isMuted;
+        const icon = document.getElementById('sound-icon');
+        if (isMuted) { icon.textContent = 'volume_off'; showToast("Sound off"); }
+        else { icon.textContent = 'volume_up'; showToast("Sound on"); }
+    }
+    function playTone(freq, start, duration, vol) {
+        const ctx = initAudio(); if (!ctx) return;
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine'; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(vol || 0.06, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+        osc.start(start); osc.stop(start + duration);
+    }
+    function playPing() {
+        if (isMuted) return;
+        const ctx = initAudio(); if (!ctx) return;
+        const now = ctx.currentTime;
+        playTone(880, now, 0.12);
+        playTone(1175, now + 0.14, 0.16);
+    }
+    function playRequestChime() {
+        if (isMuted) return;
+        const ctx = initAudio(); if (!ctx) return;
+        const now = ctx.currentTime;
+        playTone(659, now, 0.14, 0.08);
+        playTone(880, now + 0.16, 0.14, 0.08);
+        playTone(1047, now + 0.32, 0.22, 0.08);
+    }
+    function notifyPing() {
+        device.classList.add('vibrate');
+        try { playPing(); } catch (e) { }
+        try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) { }
+        setTimeout(() => device.classList.remove('vibrate'), 600);
+    }
+    function notifyRequest() {
+        try { playRequestChime(); } catch (e) { }
+        try { if (navigator.vibrate) navigator.vibrate([100, 60, 100]); } catch (e) { }
+    }
+
+    function initMqttConnection() {
+        const clientId = "clip-" + Math.random().toString(16).substr(2, 10);
+        console.log("[MQTT] Connecting with clientId:", clientId);
+        mqttClient = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, clientId);
+        mqttClient.onConnectionLost = onConnectionLost;
+        mqttClient.onMessageArrived = onMessageArrived;
+        mqttClient.connect({ useSSL: true, onSuccess: onConnect, onFailure: onFail });
+    }
+    function onConnect() {
+        console.log("[MQTT] Connected");
+        isConnected = true;
+        if (roomCode) {
+            console.log("[MQTT] Reconnecting into existing room:", roomCode);
+            subscribeRoom(() => announce());
+            startHeartbeat();
+        }
+        updatePeerUI();
+    }
+    function onFail(responseObject) {
+        console.log("[MQTT] Failed: " + responseObject.errorMessage);
+        isConnected = false; updatePeerUI();
+        showToast("Network error", "error");
+        setTimeout(initMqttConnection, 5000);
+    }
+    function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+            console.log("[MQTT] Lost: " + responseObject.errorMessage);
+            isConnected = false; stopHeartbeat(); updatePeerUI();
+            setTimeout(initMqttConnection, 2000);
+        }
+    }
+    function roomBase() { return TOPIC_PREFIX + roomCode + "/"; }
+
+    // Subscribe with timeout fallback: some brokers never call onSuccess
+    function subscribeRoom(callback) {
+        if (!mqttClient || !isConnected) {
+            console.warn("[MQTT] subscribeRoom called while not connected");
+            if (callback) setTimeout(callback, 100);
+            return;
+        }
+        console.log("[MQTT] Subscribing to:", roomBase() + myId, "and", roomBase() + "all");
+        let pending = 2;
+        let fired = false;
+        const finish = () => {
+            if (fired) return;
+            fired = true;
+            console.log("[MQTT] Subscriptions ready — announcing");
+            if (callback) callback();
+        };
+        const done = (ctx) => {
+            pending--;
+            console.log("[MQTT] Sub confirmed (remaining " + pending + ")", ctx);
+            if (pending === 0) finish();
+        };
+        const onErr = (e) => { console.warn("[MQTT] Subscribe failed:", e); done(); };
+        try {
+            mqttClient.subscribe(roomBase() + myId, { qos: 0, onSuccess: done, onFailure: onErr });
+            mqttClient.subscribe(roomBase() + "all", { qos: 0, onSuccess: done, onFailure: onErr });
+        } catch (e) {
+            console.warn("[MQTT] Subscribe threw:", e);
+            finish();
+            return;
+        }
+        // Fallback: if broker never confirms, proceed after timeout
+        setTimeout(() => {
+            if (!fired) {
+                console.warn("[MQTT] Subscribe timeout — proceeding anyway");
+                finish();
+            }
+        }, SUBSCRIBE_TIMEOUT_MS);
+    }
+
+    function publishRaw(topic, payloadStr) {
+        if (!mqttClient || !isConnected) {
+            console.warn("[MQTT] publish skipped — not connected");
+            return false;
+        }
+        try {
+            const m = new Paho.MQTT.Message(payloadStr);
+            m.destinationName = topic;
+            mqttClient.send(m);
+            return true;
+        } catch (e) { console.warn("[MQTT] publish fail", e); return false; }
+    }
+
+    async function announce() {
+        if (!roomCode || !isConnected) return;
+        if (!myKeyPair) myKeyPair = await generateKeyPair();
+        const jwk = await exportPublicKey(myKeyPair.publicKey);
+        const ok = publishRaw(roomBase() + "all", JSON.stringify({ type: 'HELLO', sender: myId, pub: jwk, ts: Date.now() }));
+        if (ok) {
+            helloTxCount++;
+            console.log("[TX] HELLO sent (total " + helloTxCount + ")");
+        }
+    }
+
+    function startHeartbeat() {
+        stopHeartbeat();
+        heartbeatTimer = setInterval(async () => {
+            if (roomCode && isConnected) {
+                try { await announce(); } catch (e) { }
+            }
+        }, HEARTBEAT_MS);
+    }
+    function stopHeartbeat() { if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } }
+
+    function pruneStalePeers() {
+        const now = Date.now();
+        let changed = false;
+        for (const [id, p] of peers) {
+            if (p.lastSeen && (now - p.lastSeen > PEER_TIMEOUT_MS)) {
+                peers.delete(id); changed = true;
+                showToast("Peer " + id + " timed out", "error");
+            }
+        }
+        for (const [id, until] of rejectedPeers) if (now > until) rejectedPeers.delete(id);
+        let requestsChanged = false;
+        for (const [id, req] of pendingRequests) {
+            if (req.ts && (now - req.ts > 90000)) {
+                pendingRequests.delete(id); requestsChanged = true;
+            }
+        }
+        if (changed) updatePeerUI();
+        if (requestsChanged) updateRequestsUI();
+    }
+
+    async function addPeer(id, jwk) {
+        if (!myKeyPair) return null;
+        const pubKey = await importPublicKey(jwk);
+        const sessionKey = await deriveSessionKey(myKeyPair.privateKey, pubKey);
+        const safety = await generateSafetyNumber(myKeyPair.publicKey, pubKey, myId, id);
+        const peer = { pubKey, sessionKey, safety, jwk, lastSeen: Date.now() };
+        peers.set(id, peer);
+        pendingRequests.delete(id);
+        return peer;
+    }
+
+    function setConnectedUI(connected) {
+        if (connected === connectionUIState) return;
+        connectionUIState = connected;
+        if (connected) {
+            device.classList.add('connected');
+            btnPair.textContent = 'LEAVE';
+            btnPair.classList.add('leave-mode');
+            emptyIcon.textContent = 'bolt';
+            emptyTitle.textContent = 'Connected';
+            emptySub.textContent = 'Stream text or drop files anywhere';
+            secureBadge.style.display = 'inline-flex';
+        } else {
+            device.classList.remove('connected');
+            btnPair.textContent = 'JOIN';
+            btnPair.classList.remove('leave-mode');
+            emptyIcon.textContent = 'content_paste';
+            emptyTitle.textContent = 'Nothing here yet';
+            emptySub.textContent = 'Paste, drop, or type to begin';
+            secureBadge.style.display = 'none';
+        }
+    }
+
+    function updatePeerUI() {
+        const hasPeers = peers.size > 0;
+        if (hasPeers) {
+            secureBadge.textContent = peers.size + (peers.size > 1 ? ' peers' : ' peer');
+            secureBadge.title = 'Click to leave room';
+            statusIcon.classList.add('secure');
+            statusIcon.textContent = 'lock';
+            document.getElementById('info-status').textContent = "AES-GCM-256";
+            document.getElementById('safety-number-section').style.display = 'block';
+            chipState.className = 'pill state secure';
+            chipStateText.textContent = 'SECURED';
+        } else {
+            statusIcon.classList.remove('secure');
+            statusIcon.textContent = isConnected ? 'wifi' : 'wifi_off';
+            document.getElementById('info-status').textContent = roomCode ? "WAITING" : "UNSECURED";
+            document.getElementById('safety-number-section').style.display = 'none';
+            chipState.className = 'pill state' + (isConnected ? ' online' : '');
+            chipStateText.textContent = roomCode ? 'WAITING' : (isConnected ? 'ONLINE' : 'OFFLINE');
+        }
+        document.getElementById('info-peer-count').textContent = peers.size;
+        setConnectedUI(hasPeers);
+        const box = document.getElementById('info-peers');
+        box.innerHTML = "";
+        if (peers.size === 0) {
+            box.innerHTML = '<div class="fingerprint-box" style="color:#a1a1a6;">-- -- --</div>';
+        } else {
+            for (const [id, p] of peers) {
+                const row = document.createElement('div');
+                row.className = 'peer-row';
+                row.innerHTML = `<span>PEER ${escapeHtml(id)}</span><span>${escapeHtml(p.safety)}</span>`;
+                box.appendChild(row);
+            }
+        }
+        updateRequestsUI();
+    }
+
+    /* ============================================================
+       SIDE PANEL — tabs, open/close, request queue
+       ============================================================ */
+    function openSide(tab) {
+        sidePanel.classList.add('visible');
+        sideBackdrop.classList.add('visible');
+        if (tab) setSideTab(tab);
+    }
+    function closeSide() {
+        sidePanel.classList.remove('visible');
+        sideBackdrop.classList.remove('visible');
+    }
+    function toggleSide() {
+        if (sidePanel.classList.contains('visible')) closeSide();
+        else openSide('log');
+    }
+    function setSideTab(tab) {
+        currentSideTab = tab;
+        const isLog = tab === 'log';
+        viewLog.classList.toggle('active', isLog);
+        viewRequests.classList.toggle('active', !isLog);
+        tabBtnLog.classList.toggle('active', isLog);
+        tabBtnRequests.classList.toggle('active', !isLog);
+    }
+
+    function updateRequestsUI() {
+        const n = pendingRequests.size;
+        const prevCount = lastPendingCount;
+        lastPendingCount = n;
+
+        // Tab badge
+        tabBadge.textContent = n;
+        tabBadge.classList.toggle('show', n > 0);
+
+        // Header pill + banner
+        if (n > 0) {
+            requestPill.style.display = 'inline-flex';
+            requestPillText.textContent = n + ' req';
+            requestBanner.classList.add('visible');
+            if (n === 1) {
+                const [id] = [...pendingRequests.keys()];
+                requestBannerText.textContent = `Peer ${id} wants to join`;
+            } else {
+                requestBannerText.textContent = `${n} peers want to join`;
+            }
+        } else {
+            requestPill.style.display = 'none';
+            requestBanner.classList.remove('visible');
+            if (currentSideTab === 'requests') setSideTab('log');
+        }
+
+        openModePill.style.display = openForAll ? 'inline-flex' : 'none';
+        openToggle.classList.toggle('on', openForAll);
+        acceptAllBtn.disabled = n === 0;
+        acceptAllBtn.textContent = n > 1 ? `Accept all (${n})` : 'Accept all';
+
+        if (n > 0) btnSide.classList.add('attention');
+        else btnSide.classList.remove('attention');
+
+        renderRequestsList();
+
+        // Auto-open drawer when a NEW request arrives (unconditional)
+        if (n > prevCount && n > 0) {
+            console.log("[REQ] New request — auto-opening drawer to Requests tab");
+            openSide('requests');
+        }
+    }
+
+    function renderRequestsList() {
+        requestsList.innerHTML = "";
+        if (pendingRequests.size === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'req-empty';
+            empty.innerHTML = '<span class="ms">how_to_reg</span>No pending requests';
+            requestsList.appendChild(empty);
+            return;
+        }
+        for (const [id, req] of pendingRequests) {
+            const el = document.createElement('div');
+            el.className = 'req-item';
+            el.innerHTML = `
+                <div class="req-avatar">${escapeHtml(id.slice(-2))}</div>
+                <div class="req-info">
+                    <div class="req-name">Peer ${escapeHtml(id)}</div>
+                    <div class="req-safety">${escapeHtml(req.safety || '············')}</div>
+                </div>
+                <div class="req-actions">
+                    <button class="req-btn decline" data-decline="${escapeHtml(id)}">Decline</button>
+                    <button class="req-btn accept" data-accept="${escapeHtml(id)}">Accept</button>
+                </div>
+            `;
+            requestsList.appendChild(el);
+        }
+        requestsList.querySelectorAll('[data-accept]').forEach(btn => {
+            btn.addEventListener('click', () => acceptRequest(btn.getAttribute('data-accept')));
+        });
+        requestsList.querySelectorAll('[data-decline]').forEach(btn => {
+            btn.addEventListener('click', () => declineRequest(btn.getAttribute('data-decline')));
+        });
+    }
+
+    async function acceptRequest(id) {
+        const req = pendingRequests.get(id);
+        if (!req) return;
+        if (!myKeyPair) { showToast("Not ready yet", "error"); return; }
+        const peer = await addPeer(id, req.pub);
+        if (!peer) { showToast("Crypto error", "error"); return; }
+        const jwk = await exportPublicKey(myKeyPair.publicKey);
+        publishRaw(roomBase() + id, JSON.stringify({
+            type: 'HELLO_REPLY', sender: myId, pub: jwk, ts: Date.now()
+        }));
+        pendingRequests.delete(id);
+        updatePeerUI();
+        showToast("Peer " + id + " accepted", "success");
+        notifyPing();
+    }
+
+    function declineRequest(id) {
+        if (!pendingRequests.has(id)) return;
+        pendingRequests.delete(id);
+        publishRaw(roomBase() + id, JSON.stringify({
+            type: 'REJECT', sender: myId, ts: Date.now()
+        }));
+        rejectedPeers.set(id, Date.now() + REJECT_CACHE_MS);
+        updateRequestsUI();
+        showToast("Peer " + id + " declined", "error");
+    }
+
+    async function acceptAllRequests() {
+        const ids = [...pendingRequests.keys()];
+        for (const id of ids) await acceptRequest(id);
+    }
+
+    function toggleOpenForAll() {
+        openForAll = !openForAll;
+        updateRequestsUI();
+        showToast(openForAll ? "Open for all: ON" : "Open for all: OFF", openForAll ? "success" : "neutral");
+        if (openForAll && pendingRequests.size > 0) acceptAllRequests();
+    }
+
+    async function broadcast(payloadObj) {
+        if (peers.size === 0) return 0;
+        payloadObj.sender = myId;
+        const plain = JSON.stringify(payloadObj);
+        let sent = 0;
+        for (const [id, peer] of peers) {
+            try {
+                const enc = await encryptMessage(plain, peer.sessionKey);
+                publishRaw(roomBase() + id, JSON.stringify({ encrypted: true, sender: myId, content: enc }));
+                sent++;
+            } catch (e) { console.warn("send fail", id, e); }
+        }
+        return sent;
+    }
+
+    async function onMessageArrived(message) {
+        msgRxCount++;
+        let raw;
+        try { raw = JSON.parse(message.payloadString); } catch (e) {
+            console.warn("[RX] Non-JSON payload on", message.destinationName);
+            return;
+        }
+        console.log("[RX] msg #" + msgRxCount + " type=" + (raw && raw.type));
+
+        let data;
+        if (raw && raw.encrypted) {
+            const peer = peers.get(raw.sender);
+            if (!peer) { console.warn("[RX] encrypted from unknown peer", raw.sender); return; }
+            try {
+                const dec = await decryptMessage(raw.content, peer.sessionKey);
+                data = JSON.parse(dec);
+                peer.lastSeen = Date.now();
+            } catch (e) { console.warn("decrypt fail", e); return; }
+        } else { data = raw; }
+        if (!data || !data.type) return;
+        handlePacket(data);
+    }
+
+    async function handlePacket(d) {
+        const type = d.type;
+
+        if (type === 'HELLO') {
+            helloTxRx++;
+            console.log("[RX] HELLO from", d.sender, "(total " + helloTxRx + ")");
+            if (d.sender === myId || !d.pub) return;
+            if (peers.has(d.sender)) {
+                const ex = peers.get(d.sender);
+                const sameKey = ex.jwk && ex.jwk.x === d.pub.x && ex.jwk.y === d.pub.y;
+                if (sameKey) { ex.lastSeen = Date.now(); return; }
+                peers.delete(d.sender);
+            }
+            if (rejectedPeers.has(d.sender)) {
+                console.log("[RX] HELLO from rejected peer, ignoring");
+                return;
+            }
+
+            if (pendingRequests.has(d.sender)) {
+                const existing = pendingRequests.get(d.sender);
+                existing.pub = d.pub;
+                existing.ts = Date.now();
+                if (myKeyPair) existing.safety = await computeSafetyPreview(d.pub, d.sender);
+                updateRequestsUI();
+                return;
+            }
+
+            if (openForAll) {
+                console.log("[REQ] Open-for-all: auto-accepting", d.sender);
+                const peer = await addPeer(d.sender, d.pub);
+                if (!peer) return;
+                const jwk = await exportPublicKey(myKeyPair.publicKey);
+                publishRaw(roomBase() + d.sender, JSON.stringify({
+                    type: 'HELLO_REPLY', sender: myId, pub: jwk, ts: Date.now()
+                }));
+                updatePeerUI();
+                showToast("Peer " + d.sender + " auto-joined", "success");
+                notifyPing();
+                return;
+            }
+
+            console.log("[REQ] Queuing request from", d.sender);
+            const safety = await computeSafetyPreview(d.pub, d.sender);
+            pendingRequests.set(d.sender, {
+                sender: d.sender, pub: d.pub, jwk: d.pub, safety, ts: Date.now()
+            });
+            updateRequestsUI();
+            showToast("Join request from " + d.sender, "neutral");
+            notifyRequest();
+            return;
+        }
+
+        if (type === 'HELLO_REPLY') {
+            console.log("[RX] HELLO_REPLY from", d.sender);
+            if (d.sender === myId || !d.pub) return;
+            if (peers.has(d.sender)) {
+                const ex = peers.get(d.sender);
+                const sameKey = ex.jwk && ex.jwk.x === d.pub.x && ex.jwk.y === d.pub.y;
+                if (sameKey) { ex.lastSeen = Date.now(); return; }
+                peers.delete(d.sender);
+            }
+            await addPeer(d.sender, d.pub);
+            updatePeerUI();
+            showToast("Link secured", "success");
+            notifyPing();
+            return;
+        }
+
+        if (type === 'REJECT') {
+            console.log("[RX] REJECT from", d.sender);
+            showToast("Request declined", "error");
+            try { if (navigator.vibrate) navigator.vibrate(200); } catch(e) {}
+            if (roomCode) silentLeaveRoom();
+            return;
+        }
+
+        if (type === 'BYE') {
+            if (peers.delete(d.sender)) {
+                updatePeerUI();
+                showToast("Peer " + d.sender + " left", "error");
+            }
+            return;
+        }
+
+        if (type === 'TEXT') {
+            const safe = sanitizeHTML(d.data || "");
+            addTextItem('RX', safe, d.sender);
+            addToHistory('RX', htmlToText(safe), d.sender);
+            notifyPing();
+            return;
+        }
+        if (type === 'FILE_META') { startIncomingFile(d); return; }
+        if (type === 'FILE_CHUNK') { receiveChunk(d); return; }
+        if (type === 'FILE_END') { finishIncomingFile(d); return; }
+    }
+
+    async function computeSafetyPreview(theirJwk, theirId) {
+        try {
+            if (!myKeyPair) return "············";
+            const theirKey = await importPublicKey(theirJwk);
+            return await generateSafetyNumber(myKeyPair.publicKey, theirKey, myId, theirId);
+        } catch (e) { return "············"; }
+    }
+
+    function htmlToText(html) { const tmp = document.createElement('div'); tmp.innerHTML = html; return (tmp.innerText || "").trim(); }
+    function scrollCanvas() { canvasEl.scrollTop = canvasEl.scrollHeight; }
+
+    function addTextItem(dir, html, sender) {
+        canvasEmpty.style.display = 'none';
+        const el = document.createElement('div');
+        el.className = 'c-item ' + (dir === 'TX' ? 'tx' : 'rx');
+        const label = dir === 'TX' ? 'Sent' : 'Received · ' + escapeHtml(sender || '????');
+        el.innerHTML = `
+            <div class="c-meta">
+                <span class="tag ${dir === 'TX' ? 'tx' : 'rx'}">${label}</span>
+                <span class="meta-right">
+                    <button class="c-copy" title="Copy"><span class="ms">content_copy</span></button>
+                    <span class="time">${timeNow()}</span>
+                </span>
+            </div>
+            <div class="c-text"></div>
+        `;
+        el.querySelector('.c-text').innerHTML = html;
+        el.querySelector('.c-copy').addEventListener('click', () => copyToClipboard(el.querySelector('.c-text').innerText));
+        canvasInner.appendChild(el);
+        scrollCanvas();
+    }
+
+    function createFileItem(opts) {
+        canvasEmpty.style.display = 'none';
+        const el = document.createElement('div');
+        el.className = 'c-item ' + (opts.dir === 'TX' ? 'tx' : 'rx');
+        const label = opts.dir === 'TX' ? 'Sent' : 'Received · ' + escapeHtml(opts.sender || '????');
+        el.innerHTML = `
+            <div class="c-meta">
+                <span class="tag ${opts.dir === 'TX' ? 'tx' : 'rx'}">${label}</span>
+                <span class="meta-right"><span class="time">${timeNow()}</span></span>
+            </div>
+            <div class="file-card">
+                <span class="ms file-ico">${iconFor(opts.mime, opts.name)}</span>
+                <div class="file-info">
+                    <div class="file-name">${escapeHtml(opts.name)}</div>
+                    <div class="file-size">${formatSize(opts.size)}</div>
+                </div>
+                <a class="file-dl" style="display:none" download="${escapeHtml(opts.name)}">Get</a>
+            </div>
+            <div class="bar"><div class="bar-fill ${opts.dir === 'TX' ? 'tx' : ''}"></div></div>
+            <div class="thumb-wrap"></div>
+        `;
+        canvasInner.appendChild(el); scrollCanvas();
+        const fill = el.querySelector('.bar-fill');
+        const dl = el.querySelector('.file-dl');
+        const thumbWrap = el.querySelector('.thumb-wrap');
+        const sizeEl = el.querySelector('.file-size');
+        return {
+            el,
+            setProgress(p) { fill.style.width = Math.max(0, Math.min(1, p)) * 100 + '%'; },
+            setReady(url, mime, name) {
+                dl.href = url; dl.style.display = 'inline-block';
+                sizeEl.textContent = formatSize(opts.size) + " · Ready";
+                if ((mime || "").startsWith("image/")) {
+                    const img = document.createElement('img');
+                    img.src = url; img.alt = name || 'image';
+                    thumbWrap.appendChild(img); scrollCanvas();
+                }
+            },
+            done() { sizeEl.textContent = formatSize(opts.size) + " · Done"; },
+            fail() { sizeEl.textContent = formatSize(opts.size) + " · Failed"; }
+        };
+    }
+
+    function triggerFile() { fileInput.click(); }
+    function handleFiles(list) { if (!list || !list.length) return; for (const f of Array.from(list)) sendFile(f); }
+    async function sendFile(file) {
+        if (!file) return;
+        if (file.size > MAX_FILE) { showToast("Max 2 MB per file", "error"); return; }
+        const id = 'f' + Math.random().toString(36).slice(2, 10);
+        const ref = createFileItem({ dir: 'TX', id, name: file.name, size: file.size, mime: file.type });
+        const localUrl = URL.createObjectURL(file);
+        ref.setReady(localUrl, file.type, file.name);
+        ref.setProgress(1);
+        if (peers.size === 0) { showToast("Saved locally"); addToHistory('TX', '[FILE] ' + file.name, roomCode || 'LOCAL'); return; }
+        try {
+            const buf = await file.arrayBuffer();
+            const b64 = arrayBufferToBase64(buf);
+            const total = Math.max(1, Math.ceil(b64.length / CHUNK_SIZE));
+            ref.setProgress(0);
+            ref.el.querySelector('.file-size').textContent = formatSize(file.size) + " · Sending…";
+            await broadcast({ type: 'FILE_META', id, name: file.name, size: file.size, mime: file.type, total, ts: Date.now() });
+            for (let i = 0; i < total; i++) {
+                await broadcast({ type: 'FILE_CHUNK', id, i, data: b64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE) });
+                ref.setProgress((i + 1) / total);
+                if (i % 6 === 5) await sleep(0);
+            }
+            await broadcast({ type: 'FILE_END', id });
+            ref.setProgress(1); ref.done();
+            addToHistory('TX', '[FILE] ' + file.name, roomCode);
+            showToast("File streamed", "success");
+        } catch (e) { ref.fail(); showToast("File failed", "error"); }
+    }
+    function startIncomingFile(d) {
+        const ref = createFileItem({ dir: 'RX', id: d.id, name: d.name, size: d.size, mime: d.mime, sender: d.sender });
+        incoming.set(d.id, { ref, meta: d, total: d.total || 1, got: 0, parts: new Array(d.total || 1) });
+        addToHistory('RX', '[FILE] ' + d.name, d.sender);
+        notifyPing();
+    }
+    function receiveChunk(d) {
+        const t = incoming.get(d.id); if (!t) return;
+        if (t.parts[d.i] === undefined) { t.parts[d.i] = d.data; t.got++; }
+        t.ref.setProgress(t.got / t.total);
+    }
+    function finishIncomingFile(d) {
+        const t = incoming.get(d.id); if (!t) return;
+        incoming.delete(d.id);
+        try {
+            const b64 = t.parts.join('');
+            const bytes = base64ToBytes(b64);
+            const blob = new Blob([bytes], { type: t.meta.mime || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            t.ref.setReady(url, t.meta.mime, t.meta.name);
+            t.ref.setProgress(1); t.ref.done();
+            showToast("File received", "success");
+        } catch (e) { t.ref.fail(); showToast("File corrupt", "error"); }
+    }
+
+    function updateCounter() { /* no visible counter */ }
+    async function sendComposer() {
+        const raw = composer.innerHTML.trim();
+        const text = composer.innerText.trim();
+        if (!text) { showToast("Nothing to send", "error"); return; }
+        if (text.length > CHAR_LIMIT) { showToast("Message too long", "error"); return; }
+        const clean = sanitizeHTML(raw);
+        composer.innerHTML = ""; updateCounter();
+        addTextItem('TX', clean, null);
+        addToHistory('TX', text, roomCode || 'LOCAL');
+        if (peers.size === 0) { showToast("Saved locally"); return; }
+        const sent = await broadcast({ type: 'TEXT', data: clean, ts: Date.now() });
+        showToast(sent > 0 ? "Streamed" : "No peers", sent > 0 ? "success" : "error");
+    }
+
+    async function copyToClipboard(text) {
+        try { await navigator.clipboard.writeText(text); showToast("Copied"); }
+        catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); showToast("Copied"); }
+            catch (err) { showToast("Copy failed", "error"); }
+            document.body.removeChild(ta);
+        }
+    }
+
+    function clearCanvas() {
+        const items = canvasInner.querySelectorAll('.c-item');
+        if (!items.length) return;
+        if (!confirm("Clear the canvas? This only affects your view.")) return;
+        items.forEach(n => n.remove());
+        canvasEmpty.style.display = 'flex';
+        showToast("Cleared");
+    }
+
+    function addToHistory(type, text, partnerPin) {
+        messageLog.push({
+            type, text, time: timeNow(),
+            from: type === 'TX' ? myId : (partnerPin || 'UNKNOWN'),
+            to: type === 'TX' ? (partnerPin || 'UNKNOWN') : myId
+        });
+        if (messageLog.length > LOG_LIMIT) messageLog.shift();
+        renderHistory();
+    }
+    function renderHistory() {
+        if (messageLog.length === 0) return;
+        if (historyList.children.length === 1 && historyList.children[0].textContent.includes("No records yet")) {
+            historyList.innerHTML = "";
+        }
+        const item = messageLog[messageLog.length - 1];
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.innerHTML = `
+            <div class="history-meta">
+                <span class="${item.type === 'TX' ? 'type-tx' : 'type-rx'}">
+                    ${item.type === 'TX' ? 'Sent → ' + escapeHtml(item.to) : 'Received ← ' + escapeHtml(item.from)}
+                </span>
+                <span>${item.time}</span>
+            </div>
+            <div class="history-text">${escapeHtml(item.text)}</div>
+        `;
+        historyList.prepend(div);
+        while (historyList.children.length > LOG_LIMIT) historyList.removeChild(historyList.lastChild);
+        historyList.scrollTop = 0;
+    }
+
+    function openPairModal() {
+        if (roomCode) { leaveRoom(); return; }
+        initAudio();
+        freqInput.value = "";
+        openModal('freq-modal');
+        setTimeout(() => freqInput.focus(), 100);
+    }
+
+    async function confirmPairing() {
+        const code = freqInput.value.trim();
+        if (code.length < 4) { showToast("Enter at least 4 digits", "error"); return; }
+        closeModal('freq-modal');
+        roomCode = code;
+        setText('chip-room', code);
+        document.getElementById('info-target-pin').textContent = code;
+        document.getElementById('info-status').textContent = "WAITING";
+        myKeyPair = await generateKeyPair();
+        peers.clear();
+        pendingRequests.clear();
+        rejectedPeers.clear();
+        openForAll = false;
+        lastPendingCount = 0;
+        updatePeerUI();
+        console.log("[JOIN] Room:", code, "ID:", myId);
+
+        if (!isConnected) {
+            showToast("Waiting for network…");
+            // onConnect will subscribe + announce once MQTT is up
+            return;
+        }
+        subscribeRoom(async () => {
+            await announce();
+            showToast("Waiting for approval…");
+        });
+        startHeartbeat();
+    }
+
+    function silentLeaveRoom() {
+        if (!roomCode) return;
+        if (mqttClient && isConnected) {
+            try {
+                mqttClient.unsubscribe(TOPIC_PREFIX + roomCode + "/" + myId);
+                mqttClient.unsubscribe(TOPIC_PREFIX + roomCode + "/all");
+            } catch (e) { }
+        }
+        stopHeartbeat();
+        roomCode = null; myKeyPair = null;
+        peers.clear(); pendingRequests.clear(); incoming.clear();
+        openForAll = false;
+        lastPendingCount = 0;
+        setText('chip-room', '—');
+        document.getElementById('info-target-pin').textContent = "NONE";
+        document.getElementById('info-status').textContent = "UNSECURED";
+        updatePeerUI();
+    }
+
+    function leaveRoom() {
+        if (!roomCode) return;
+        if (!confirm("Leave room? Session keys will be wiped.")) return;
+        if (isConnected && peers.size) {
+            const payload = JSON.stringify({ type: 'BYE', sender: myId, ts: Date.now() });
+            publishRaw(TOPIC_PREFIX + roomCode + "/all", payload);
+        }
+        silentLeaveRoom();
+        showToast("Left room", "error");
+    }
+
+    function showToast(msg, type = 'neutral') {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `toast ${type}`;
+        t.classList.add('visible');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => t.classList.remove('visible'), 2200);
+    }
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    function openInfoModal() {
+        document.getElementById('info-peer-count').textContent = peers.size;
+        document.getElementById('info-target-pin').textContent = roomCode || "NONE";
+        updatePeerUI();
+        openModal('info-modal');
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (sidePanel.classList.contains('visible')) closeSide();
+            document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+        }
+    });
+</script>
+</body>
+</html>
